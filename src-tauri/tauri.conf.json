@@ -7,8 +7,7 @@
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
     "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist",
-    "devtools": true
+    "frontendDist": "../dist"
   },
   "app": {
     "withGlobalTauri": true,
@@ -25,8 +24,5 @@
     "security": {
       "csp": null
     }
-  },
-  "bundle": {
-    "active": false
   }
 }

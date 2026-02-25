@@ -263,6 +263,20 @@ function App() {
   const filteredContinents = continents.map(continent => ({
     ...continent,
     countries: continent.countries.filter(country => {
+      // Check region filter
+      if (regionFilter !== 'all' && continent.name !== regionFilter) {
+        return false
+      }
+      
+      // Check ping filter
+      if (maxPing > 0) {
+        const hasValidPing = country.servers.some(s => {
+          const ping = serverPings.get(s.code)
+          return ping !== undefined && ping <= maxPing
+        })
+        if (!hasValidPing) return false
+      }
+      
       const isBlocked = country.blocked > 0
       const allBlocked = country.blocked === country.total
       const partial = isBlocked && !allBlocked
