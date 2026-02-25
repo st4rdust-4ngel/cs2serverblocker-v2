@@ -498,6 +498,44 @@ function App() {
                   ))}
                 </div>
 
+                {/* Region Filter */}
+                <div className="mt-3">
+                  <label className="text-xs text-gray-500 mb-1 block">Region:</label>
+                  <select
+                    value={regionFilter}
+                    onChange={(e) => setRegionFilter(e.target.value)}
+                    className="w-full bg-dark-bg border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
+                  >
+                    <option value="all">All Regions</option>
+                    <option value="North America">North America</option>
+                    <option value="South America">South America</option>
+                    <option value="Europe">Europe</option>
+                    <option value="Asia">Asia</option>
+                    <option value="Africa">Africa</option>
+                    <option value="Oceania">Oceania</option>
+                  </select>
+                </div>
+
+                {/* Ping Filter */}
+                <div className="mt-3">
+                  <label className="text-xs text-gray-500 mb-1 block">
+                    Max Ping: {maxPing === 0 ? 'None' : `${maxPing}ms`}
+                  </label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="200"
+                    step="10"
+                    value={maxPing}
+                    onChange={(e) => setMaxPing(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span>0ms</span>
+                    <span>200ms</span>
+                  </div>
+                </div>
+
                 {/* Bulk Actions */}
                 {selectedCountries.size > 0 && (
                   <div className="flex gap-2 mt-3">
