@@ -25,10 +25,12 @@ interface ContinentData {
 
 type Theme = 'dark' | 'neon-cyan' | 'neon-purple'
 type FilterMode = 'all' | 'blocked' | 'unblocked' | 'partial'
+type SidebarTab = 'countries' | 'favorites'
 
 function App() {
   const [servers, setServers] = useState<ServerLocation[]>([])
   const [blocked, setBlocked] = useState<Set<string>>(new Set())
+  const [favorites, setFavorites] = useState<Set<string>>(new Set())
   const [continents, setContinents] = useState<ContinentData[]>([])
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
@@ -40,6 +42,42 @@ function App() {
   const [statusMessage, setStatusMessage] = useState('Ready')
   const [dialogType, setDialogType] = useState<string | null>(null)
   const [showAdminWarning, setShowAdminWarning] = useState(true)
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('countries')
+  const [serverPings, setServerPings] = useState<Map<string, number>>(new Map())
+  const [pinging, setPinging] = useState(false)
+  const [regionFilter, setRegionFilter] = useState<string>('all')
+  const [maxPing, setMaxPing] = useState<number>(0) // 0 = no filter
+
+  // Load favorites from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('cs2-favorites')
+    if (saved) {
+      try {
+        setFavorites(new Set(JSON.parse(saved)))
+      } catch (e) {
+        console.error('Failed to load favorites:', e)
+      }
+    }
+  }, [])
+
+  // Save favorites to localStorage
+  useEffect(() => {
+    localStorage.setItem('cs2-favorites', JSON.stringify([...favorites]))
+  }, [favorites])
+
+  const toggleFavorite = (code: string) => {
+    setFavorites(prev => {
+      const next = new Set(prev)
+      if (next.has(code)) {
+        next.delete(code)
+      } else {
+        next.add(code)
+      }
+      return next
+    })
+  }
+
+  const favoriteServers = servers.filter(s => favorites.has(s.code))
 
   useEffect(() => {
     loadData()
@@ -73,6 +111,39 @@ function App() {
       setStatusMessage(`Error: ${error}`)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const scanPings = async () => {
+    if (servers.length === 0) return
+    try {
+      setPinging(true)
+      setStatusMessage('Measuring ping...')
+      
+      const results: Map<string, number> = new Map()
+      const batchSize = 10
+      
+      for (let i = 0; i < servers.length; i += batchSize) {
+        const batch = servers.slice(i, i + batchSize)
+        await Promise.all(batch.map(async (server) => {
+          try {
+            const ping = await invoke<number>('measure_ping', { ip: server.ip, port: server.port })
+            results.set(server.code, ping)
+          } catch {
+            // Server unreachable, skip
+          }
+        }))
+        setServerPings(new Map(results))
+        setStatusMessage(`Pinged ${Math.min(i + batchSize, servers.length)}/${servers.length} servers`)
+      }
+      
+      const successful = results.size
+      setStatusMessage(`Ping complete: ${successful}/${servers.length} servers responded`)
+    } catch (error) {
+      console.error('Failed to scan pings:', error)
+      setStatusMessage(`Ping error: ${error}`)
+    } finally {
+      setPinging(false)
     }
   }
 
@@ -296,6 +367,16 @@ function App() {
             <span className={loading ? 'animate-spin' : ''}>🔄</span>
             Refresh
           </button>
+          
+          {/* Ping Button */}
+          <button
+            onClick={scanPings}
+            disabled={pinging || servers.length === 0}
+            className="bg-dark-panel hover:bg-dark-border border border-dark-border px-4 py-2 rounded-lg flex items-center gap-2 transition"
+          >
+            <span className={pinging ? 'animate-pulse' : '📡'}>📡</span>
+            {pinging ? 'Pinging...' : 'Scan Ping'}
+          </button>
         </div>
       </header>
 
@@ -329,6 +410,10 @@ function App() {
                     <p className="text-3xl font-bold text-green-500">{servers.length - blockedCount}</p>
                   </div>
                   <div className="bg-dark-bg rounded-lg p-4">
+                    <p className="text-gray-400 text-sm">Favorites</p>
+                    <p className="text-3xl font-bold text-yellow-500">{favorites.size}</p>
+                  </div>
+                  <div className="bg-dark-bg rounded-lg p-4 col-span-2">
                     <p className="text-gray-400 text-sm">Admin Status</p>
                     <p className={`text-xl font-bold ${isAdmin ? 'text-green-500' : 'text-yellow-500'}`}>
                       {isAdmin ? '✓ Admin' : '✗ User'}
@@ -360,99 +445,171 @@ function App() {
 
         {/* Sidebar - Country List */}
         <aside className="w-[450px] glass border-l border-dark-border flex flex-col">
+          {/* Tab Navigation */}
+          <div className="flex border-b border-dark-border">
+            <button
+              onClick={() => setSidebarTab('countries')}
+              className={`flex-1 py-3 text-sm font-medium transition ${
+                sidebarTab === 'countries' 
+                  ? 'text-cyan-500 border-b-2 border-cyan-500' 
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Countries
+            </button>
+            <button
+              onClick={() => setSidebarTab('favorites')}
+              className={`flex-1 py-3 text-sm font-medium transition ${
+                sidebarTab === 'favorites' 
+                  ? 'text-cyan-500 border-b-2 border-cyan-500' 
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              ⭐ Favorites ({favoriteServers.length})
+            </button>
+          </div>
+
           {/* Search & Filters */}
           <div className="p-4 border-b border-dark-border">
-            <input
-              type="text"
-              placeholder="Search countries..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-dark-bg border border-dark-border rounded-lg px-4 py-2 mb-3 focus:outline-none focus:border-cyan-500"
-            />
-            
-            {/* Filter Chips */}
-            <div className="flex gap-2 flex-wrap">
-              {(['all', 'blocked', 'unblocked', 'partial'] as FilterMode[]).map(mode => (
-                <button
-                  key={mode}
-                  onClick={() => setFilterMode(mode)}
-                  className={`px-3 py-1 rounded-full text-sm transition ${
-                    filterMode === mode 
-                      ? 'bg-cyan-500 text-black' 
-                      : 'bg-dark-bg text-gray-400 hover:text-white'
-                  }`}
-                >
-                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                </button>
-              ))}
-            </div>
+            {sidebarTab === 'countries' && (
+              <>
+                <input
+                  type="text"
+                  placeholder="Search countries..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-dark-bg border border-dark-border rounded-lg px-4 py-2 mb-3 focus:outline-none focus:border-cyan-500"
+                />
+                
+                {/* Filter Chips */}
+                <div className="flex gap-2 flex-wrap">
+                  {(['all', 'blocked', 'unblocked', 'partial'] as FilterMode[]).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setFilterMode(mode)}
+                      className={`px-3 py-1 rounded-full text-sm transition ${
+                        filterMode === mode 
+                          ? 'bg-cyan-500 text-black' 
+                          : 'bg-dark-bg text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                    </button>
+                  ))}
+                </div>
 
-            {/* Bulk Actions */}
-            {selectedCountries.size > 0 && (
-              <div className="flex gap-2 mt-3">
-                <button
-                  onClick={() => setDialogType('block-selected')}
-                  className="flex-1 bg-red-600 hover:bg-red-500 text-white py-1 px-3 rounded-lg text-sm"
-                >
-                  Block Selected ({selectedCountries.size})
-                </button>
-                <button
-                  onClick={() => setDialogType('unblock-selected')}
-                  className="flex-1 bg-green-600 hover:bg-green-500 text-white py-1 px-3 rounded-lg text-sm"
-                >
-                  Unblock Selected ({selectedCountries.size})
-                </button>
-              </div>
+                {/* Bulk Actions */}
+                {selectedCountries.size > 0 && (
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={() => setDialogType('block-selected')}
+                      className="flex-1 bg-red-600 hover:bg-red-500 text-white py-1 px-3 rounded-lg text-sm"
+                    >
+                      Block Selected ({selectedCountries.size})
+                    </button>
+                    <button
+                      onClick={() => setDialogType('unblock-selected')}
+                      className="flex-1 bg-green-600 hover:bg-green-500 text-white py-1 px-3 rounded-lg text-sm"
+                    >
+                      Unblock Selected ({selectedCountries.size})
+                    </button>
+                  </div>
+                )}
+                
+                {blockedCount > 0 && (
+                  <button
+                    onClick={() => setDialogType('unblock-all')}
+                    className="w-full mt-2 bg-red-900/50 hover:bg-red-900 text-red-400 py-1 px-3 rounded-lg text-sm border border-red-800"
+                  >
+                    Unblock All
+                  </button>
+                )}
+              </>
             )}
-            
-            {blockedCount > 0 && (
-              <button
-                onClick={() => setDialogType('unblock-all')}
-                className="w-full mt-2 bg-red-900/50 hover:bg-red-900 text-red-400 py-1 px-3 rounded-lg text-sm border border-red-800"
-              >
-                Unblock All
-              </button>
+            {sidebarTab === 'favorites' && (
+              <p className="text-gray-400 text-sm">
+                {favoriteServers.length > 0 
+                  ? `${favoriteServers.length} favorite servers. Click the ⭐ on any server to add it here.`
+                  : 'No favorites yet. Click the ⭐ on any server to add it here.'}
+              </p>
             )}
           </div>
 
-          {/* Country List */}
+          {/* Country List / Favorites */}
           <div className="flex-1 overflow-auto p-4">
-            {filteredContinents.map(continent => (
-              <div key={continent.name} className="mb-4">
-                <h3 className="text-sm font-semibold text-gray-400 mb-2">
-                  {continent.name} ({continent.countries.length})
-                </h3>
-                <div className="space-y-1">
-                  {continent.countries
-                    .filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                    .map(country => (
-                      <CountryRow
-                        key={country.name}
-                        country={country}
-                        isBlocked={country.blocked === country.total}
-                        isSelected={selectedCountries.has(country.name)}
-                        isExpanded={expandedCountries.has(country.name)}
-                        onToggleExpand={() => {
-                          setExpandedCountries(prev => {
-                            const next = new Set(prev)
-                            if (next.has(country.name)) {
-                              next.delete(country.name)
-                            } else {
-                              next.add(country.name)
-                            }
-                            return next
-                          })
-                        }}
-                        onToggleSelect={() => toggleCountrySelection(country.name)}
-                        onBlock={() => blockCountry(country.name)}
-                        onUnblock={() => unblockCountry(country.name)}
-                        blockedCodes={blocked}
-                        onToggleServer={toggleServer}
-                      />
-                    ))}
-                </div>
+            {sidebarTab === 'favorites' ? (
+              <div className="space-y-2">
+                {favoriteServers.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">No favorites yet</p>
+                ) : (
+                  favoriteServers.map(server => (
+                    <div key={server.code} className="bg-dark-bg rounded-lg p-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => toggleFavorite(server.code)}
+                          className="text-yellow-500 hover:text-yellow-400"
+                          title="Remove from favorites"
+                        >
+                          ⭐
+                        </button>
+                        <span className="text-sm font-medium">{server.desc}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => toggleServer(server)}
+                          className={`px-2 py-1 rounded text-xs ${
+                            blocked.has(server.code) 
+                              ? 'bg-green-600 hover:bg-green-500 text-white' 
+                              : 'bg-red-600 hover:bg-red-500 text-white'
+                          }`}
+                        >
+                          {blocked.has(server.code) ? 'Unblock' : 'Block'}
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
-            ))}
+            ) : (
+              filteredContinents.map(continent => (
+                <div key={continent.name} className="mb-4">
+                  <h3 className="text-sm font-semibold text-gray-400 mb-2">
+                    {continent.name} ({continent.countries.length})
+                  </h3>
+                  <div className="space-y-1">
+                    {continent.countries
+                      .filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                      .map(country => (
+                        <CountryRow
+                          key={country.name}
+                          country={country}
+                          isBlocked={country.blocked === country.total}
+                          isSelected={selectedCountries.has(country.name)}
+                          isExpanded={expandedCountries.has(country.name)}
+                          onToggleExpand={() => {
+                            setExpandedCountries(prev => {
+                              const next = new Set(prev)
+                              if (next.has(country.name)) {
+                                next.delete(country.name)
+                              } else {
+                                next.add(country.name)
+                              }
+                              return next
+                            })
+                          }}
+                          onToggleSelect={() => toggleCountrySelection(country.name)}
+                          onBlock={() => blockCountry(country.name)}
+                          onUnblock={() => unblockCountry(country.name)}
+                          blockedCodes={blocked}
+                          favorites={favorites}
+                          onToggleServer={toggleServer}
+                          onToggleFavorite={toggleFavorite}
+                        />
+                      ))}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </aside>
       </div>
@@ -482,10 +639,12 @@ interface CountryRowProps {
   onBlock: () => void
   onUnblock: () => void
   blockedCodes: Set<string>
+  favorites: Set<string>
   onToggleServer: (server: ServerLocation) => void
+  onToggleFavorite: (code: string) => void
 }
 
-function CountryRow({ country, isSelected, isExpanded, onToggleExpand, onToggleSelect, onBlock, onUnblock, blockedCodes, onToggleServer }: CountryRowProps) {
+function CountryRow({ country, isSelected, isExpanded, onToggleExpand, onToggleSelect, onBlock, onUnblock, blockedCodes, favorites, onToggleServer, onToggleFavorite }: CountryRowProps) {
   const allBlocked = country.blocked === country.total
   const partial = country.blocked > 0 && !allBlocked
   
@@ -547,6 +706,13 @@ function CountryRow({ country, isSelected, isExpanded, onToggleExpand, onToggleS
                   }`}
                 >
                   {blockedCodes.has(server.code) ? '✖' : '○'}
+                </button>
+                <button
+                  onClick={() => onToggleFavorite(server.code)}
+                  className={`text-lg ${favorites.has(server.code) ? 'text-yellow-500' : 'text-gray-600 hover:text-yellow-400'}`}
+                  title={favorites.has(server.code) ? 'Remove from favorites' : 'Add to favorites'}
+                >
+                  {favorites.has(server.code) ? '⭐' : '☆'}
                 </button>
                 <span className="text-sm text-gray-300">{server.desc}</span>
               </div>

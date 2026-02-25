@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::process::Command;
+use std::time::{Duration, Instant};
+use std::net::TcpConnect;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ServerLocation {
@@ -8,6 +10,16 @@ pub struct ServerLocation {
     pub desc: String,
     pub ip: String,
     pub port: u16,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ServerWithPing {
+    pub code: String,
+    pub desc: String,
+    pub ip: String,
+    pub port: u16,
+    pub ping_ms: Option<u32>,
+    pub region: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -50,6 +62,39 @@ fn parse_address(addr: &str) -> (String, u16) {
     let ip = parts.first().unwrap_or(&"").to_string();
     let port = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(27015);
     (ip, port)
+}
+
+fn get_server_region(desc: &str) -> String {
+    let c = infer_country(desc);
+    continent(&c).to_string()
+}
+
+#[tauri::command]
+fn measure_ping(ip: String, port: u16) -> Result<u32, String> {
+    let addr = format!("{}:{}", ip, port);
+    let start = Instant::now();
+    match std::net::TcpStream::connect_timeout(
+        &addr.parse().map_err(|e: std::net::AddrParseError| format!("Invalid address: {}", e))?,
+        Duration::from_millis(2000)
+    ) {
+        Ok(_) => Ok(start.elapsed().as_millis() as u32),
+        Err(_) => Err("Timeout".to_string()),
+    }
+}
+
+#[tauri::command]
+fn measure_pings(servers: Vec<ServerLocation>) -> Vec<ServerWithPing> {
+    servers.into_iter().map(|s| {
+        let ping = measure_ping(s.ip.clone(), s.port).ok();
+        ServerWithPing {
+            code: s.code,
+            desc: s.desc,
+            ip: s.ip,
+            port: s.port,
+            ping_ms: ping,
+            region: get_server_region(&s.desc),
+        }
+    }).collect()
 }
 
 const RULE_PREFIX: &str = "CS2_Block";
@@ -208,7 +253,7 @@ fn get_country_data(servers: Vec<ServerLocation>, blocked: HashSet<String>) -> V
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default().plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![fetch_server_locations,is_admin,block_servers,unblock_servers,get_blocked_servers,block_all_in_country,unblock_all_in_country,unblock_all,relaunch_as_admin,get_country_data])
+        .invoke_handler(tauri::generate_handler![fetch_server_locations,is_admin,block_servers,unblock_servers,get_blocked_servers,block_all_in_country,unblock_all_in_country,unblock_all,relaunch_as_admin,get_country_data,measure_ping,measure_pings])
         .run(tauri::generate_context!()).expect("error");
 }
 

@@ -7,7 +7,8 @@
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
     "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist"
+    "frontendDist": "../dist",
+    "devtools": true
   },
   "app": {
     "withGlobalTauri": true,
@@ -26,12 +27,6 @@
     }
   },
   "bundle": {
-    "active": true,
-    "targets": ["msi", "nsis"],
-    "windows": {
-      "webviewInstallMode": {
-        "type": "downloadBootstrapper"
-      }
-    }
+    "active": false
   }
 }
